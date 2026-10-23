@@ -1,0 +1,17 @@
+# Binaries and local build outputs
+*.exe
+*.zip
+*.tar.gz
+/build/
+/dist/
+# Personal application backups and local browser data
+applications-*.json
+*backup*.json
+Profile/
+profile/
+.env
+.env.*
+.DS_Store
+.openai/
+
+node_modules/

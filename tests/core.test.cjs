@@ -1,0 +1,11 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {windowEnd,timing,validate,validDate}=require('../web/core.js');
+const {safeExternal,assetName}=require('../desktop/policy.cjs');
+const e={company:'Fictional Co',role:'Example',status:'Applied',applied:'2026-10-01',windowDays:'8'};
+test('calendar dates and year rollover',()=>{assert.equal(windowEnd(e),'2026-10-09');assert.equal(windowEnd({...e,applied:'2026-12-28'}),'2027-01-05');assert.equal(validDate('2026-02-30'),false);assert.equal(validDate('2028-02-29'),true);});
+test('window boundaries and closure',()=>{assert.equal(timing(e,'2026-10-09').kind,'soon');assert.equal(timing(e,'2026-10-10').kind,'overdue');assert.equal(timing(e,'2026-10-05').kind,'active');for(const status of ['Rejected','Withdrawn','Offer'])assert.equal(timing({...e,status},'2026-10-23').kind,'closed');assert.equal(e.status,'Applied');});
+test('explicit end overrides duration; missing date disables duration',()=>{assert.equal(windowEnd({...e,windowEnd:'2026-11-01'}),'2026-11-01');assert.equal(windowEnd({...e,applied:''}),'');});
+test('import rejects dangerous URLs and invalid data',()=>{for(const url of ['javascript:alert(1)','file:///secret','https://user:pass@example.com'])assert.throws(()=>validate([{...e,url}]));assert.throws(()=>validate([{...e,windowDays:'2.5'}]));assert.throws(()=>validate([{...e,windowEnd:'2026-09-01'}]));assert.throws(()=>validate([{...e,applied:'2026-02-30'}]));assert.equal(validate([e]).length,1);});
+test('duplicate IDs are replaced',()=>{const list=validate([{...e,id:'same'},{...e,id:'same'}]);assert.notEqual(list[0].id,list[1].id);});
+test('external links allow HTTP(S) only, no credentials',()=>{assert.equal(safeExternal('https://example.com/jobs'),true);for(const url of ['file:///secret','javascript:alert(1)','https://user:pass@example.com'])assert.equal(safeExternal(url),false);});
+test('desktop protocol exposes only bundled UI assets',()=>{assert.equal(assetName('applicatron://app/index.html'),'index.html');for(const url of ['applicatron://other/index.html','applicatron://app/%2e%2e%2fsecret','applicatron://app/package.json','https://app/index.html'])assert.equal(assetName(url),null);});
