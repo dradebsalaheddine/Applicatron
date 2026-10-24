@@ -1,0 +1,35 @@
+name: Unified desktop build
+on:
+  push:
+    paths: ['desktop/**', 'web/**', 'tools/**', '.github/workflows/unified.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install CPU runtime for portable distribution
+        run: |
+          python -m pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --no-cache-dir -r tools/requirements-mail.txt
+      - name: Build mail worker without model weights
+        run: python -m PyInstaller --noconfirm --onedir --console --name Applicatron-Mail-Worker --collect-all sentence_transformers --collect-all transformers --collect-all tokenizers --distpath build/worker tools/mail_worker.py
+      - shell: pwsh
+        run: Move-Item build/worker/Applicatron-Mail-Worker build/mail-runtime
+      - run: npm ci
+      - run: npm run package:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Applicatron-Unified-Windows-x64-CPU
+          path: build/Applicatron3000-win32-x64/
+          compression-level: 6
+          retention-days: 30

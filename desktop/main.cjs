@@ -18,6 +18,7 @@ if(!app.requestSingleInstanceLock()){app.quit();}else{
   win.webContents.on('will-navigate',(event,url)=>{if(url!=='applicatron://app/index.html'){event.preventDefault();openExternal(url).catch(()=>{});}});
   win.webContents.setWindowOpenHandler(({url})=>{openExternal(url).catch(()=>{});return {action:'deny'};});
   ipcMain.handle('save-pdf',async event=>{if(!trusted(event))throw Error('Untrusted sender');const picked=await dialog.showSaveDialog(win,{title:'Save application overview',defaultPath:'applications.pdf',filters:[{name:'PDF',extensions:['pdf']}]});if(picked.canceled)return false;const bytes=await win.webContents.printToPDF({printBackground:true,pageSize:'A4',landscape:true});await fs.writeFile(picked.filePath,bytes);return true;});
+  require('./mail.cjs')({app,ipcMain,dialog,win,trusted});
   win.once('ready-to-show',()=>win.show());win.loadURL('applicatron://app/index.html');
  });
  app.on('window-all-closed',()=>app.quit());
