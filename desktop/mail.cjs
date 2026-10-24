@@ -8,7 +8,7 @@ module.exports=function({app,ipcMain,dialog,win,trusted}){
  function launch(request){
   if(child)throw Error('An import or download is already running.');
   const exe=app.isPackaged?path.join(process.resourcesPath,'mail-runtime','Applicatron-Mail-Worker.exe'):(process.env.APPLICATRON_PYTHON||'python');
-  child=spawn(exe,app.isPackaged?[]:[path.join(__dirname,'../tools/mail_worker.py')],{stdio:['pipe','pipe','pipe'],windowsHide:true,env:{...process.env,PYTHONUNBUFFERED:'1',TOKENIZERS_PARALLELISM:'false',OMP_NUM_THREADS:'2',MKL_NUM_THREADS:'2'}});
+  child=spawn(exe,app.isPackaged?[]:[path.join(__dirname,'../tools/mail_worker.py')],{stdio:['pipe','pipe','pipe'],windowsHide:true,env:{...process.env,PYTHONUNBUFFERED:'1',PYTHONUTF8:'1',TOKENIZERS_PARALLELISM:'false',OMP_NUM_THREADS:'2',MKL_NUM_THREADS:'2'}});
   const running=child;let ended=false;let tail='';
   readline.createInterface({input:running.stdout}).on('line',line=>{try{const data=JSON.parse(line);if(['done','error'].includes(data.type))ended=true;send(data);}catch{}});
   running.stderr.on('data',b=>{tail=(tail+b.toString()).slice(-4000);});
