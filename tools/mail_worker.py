@@ -1,18 +1,16 @@
 """JSON-lines worker; UI/main process own file selection and cancellation."""
 import sys,json,time,re,mailbox,email.policy,email.parser,hashlib
 from pathlib import Path
-from import_mail import text_of,RULES
-from mail_analysis import extract
 from model_backends import LocalModel,MODELS,FOLDERS
 
 def emit(kind,**data):print(json.dumps(dict(type=kind,**data),ensure_ascii=False),flush=True)
 def main():
  req=json.loads(sys.stdin.readline());root=Path(req['models']);root.mkdir(parents=True,exist_ok=True)
  if req['action']=='download':
-  from huggingface_hub import snapshot_download
-  name=req['model'];emit('progress',stage='Downloading '+name,detail='The first download can take several minutes. Cancel stops the download; completed files are reused.')
-  snapshot_download(MODELS[name],local_dir=root/FOLDERS[name],ignore_patterns=['*.gguf','*.onnx','*.h5','*.msgpack','*.bin'])
-  (root/FOLDERS[name]/'.ready').write_text('ready');emit('done');return
+  from model_download import download_model
+  name=req['model'];download_model(MODELS[name],root/FOLDERS[name],name,emit);return
+ from import_mail import text_of,RULES
+ from mail_analysis import extract
  from import_report import write_report
  engines={};rows=[];seen=set();threads=set();start=time.perf_counter();qwen_calls=0;mini_calls=0
  def engine(name):
@@ -61,3 +59,4 @@ def main():
 if __name__=='__main__':
  try:main()
  except Exception as e:emit('error',message=str(e));sys.exit(1)
+

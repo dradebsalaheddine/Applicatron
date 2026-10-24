@@ -8,12 +8,12 @@ module.exports=function({app,ipcMain,dialog,win,trusted}){
  function launch(request){
   if(child)throw Error('An import or download is already running.');
   const exe=app.isPackaged?path.join(process.resourcesPath,'mail-runtime','Applicatron-Mail-Worker.exe'):(process.env.APPLICATRON_PYTHON||'python');
-  child=spawn(exe,app.isPackaged?[]:[path.join(__dirname,'../tools/mail_worker.py')],{stdio:['pipe','pipe','pipe'],windowsHide:true,env:{...process.env,PYTHONUNBUFFERED:'1',PYTHONUTF8:'1',TOKENIZERS_PARALLELISM:'false',OMP_NUM_THREADS:'2',MKL_NUM_THREADS:'2'}});
-  const running=child;let ended=false;let tail='';
+  child=spawn(exe,app.isPackaged?[]:[path.join(__dirname,'../tools/mail_worker.py')],{stdio:['pipe','pipe','pipe'],windowsHide:true,env:{...process.env,PYTHONUNBUFFERED:'1',PYTHONUTF8:'1',HF_HUB_DISABLE_XET:'1',TOKENIZERS_PARALLELISM:'false',OMP_NUM_THREADS:'2',MKL_NUM_THREADS:'2'}});
+  const running=child;let ended=false;let cancelled=false;let tail='';running.cancelTask=()=>{cancelled=true;};
   readline.createInterface({input:running.stdout}).on('line',line=>{try{const data=JSON.parse(line);if(['done','error'].includes(data.type))ended=true;send(data);}catch{}});
   running.stderr.on('data',b=>{tail=(tail+b.toString()).slice(-4000);});
   running.on('error',e=>send({type:'error',message:'Mail runtime could not start: '+e.message}));
-  running.on('close',code=>{if(child===running)child=null;if(!ended)send({type:code===0?'done':'error',message:code===0?'Finished':'Worker stopped. '+tail});send({type:'idle'});});
+  running.on('close',code=>{if(child===running)child=null;if(cancelled)send({type:'cancelled',message:'Cancelled. Received results and downloaded files are kept.'});else if(!ended)send({type:code===0?'done':'error',message:code===0?'Finished':'Worker stopped. '+tail});send({type:'idle'});});
   running.stdin.end(JSON.stringify({...request,models})+'\n');return true;
  }
  ipcMain.handle('mail-state',async e=>{guard(e);return state();});
@@ -24,6 +24,7 @@ module.exports=function({app,ipcMain,dialog,win,trusted}){
   const report=await dialog.showSaveDialog(win,{title:'Save private import report',defaultPath:'Applicatron-import-'+Date.now()+'.html',filters:[{name:'HTML',extensions:['html']}]});if(report.canceled)return false;
   return launch({action:'scan',path:pick.filePaths[0],report:report.filePath,mini:!!options.mini,large:options.large,device:options.device});
  });
- function cancel(){if(!child)return false;const p=child;if(process.platform==='win32')spawn('taskkill',['/pid',String(p.pid),'/T','/F'],{windowsHide:true});else p.kill('SIGKILL');return true;}
+ function cancel(){if(!child)return false;const p=child;p.cancelTask?.();if(process.platform==='win32')spawn('taskkill',['/pid',String(p.pid),'/T','/F'],{windowsHide:true});else p.kill('SIGKILL');return true;}
  ipcMain.handle('mail-cancel',e=>{guard(e);return cancel();});app.on('before-quit',cancel);
 };
+

@@ -1,6 +1,6 @@
 'use strict';
 const {STATUSES,todayISO,day,windowEnd,timing,validate}=TrackerCore;
-const KEY='applicatron-3000-v1';const $=s=>document.querySelector(s);const form=$('#form'),fields=form.elements;
+const KEY=ProfileStore.KEY;let profiles=null;const $=s=>document.querySelector(s);const form=$('#form'),fields=form.elements;
 let entries=[],view='list',scope='all',undoState=null,storageBlocked=false;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const format=(s,year=false)=>s?new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',...(year?{year:'numeric'}:{}),timeZone:'UTC'}).format(new Date(s+'T00:00:00Z')):'Date not set';
@@ -9,11 +9,12 @@ const isFollow=e=>!!(e.followUp&&day(e.followUp)<=day(todayISO())&&!closed(e));
 const statusClass=s=>'status-'+s.toLowerCase().replaceAll(' ','-');
 const initials=s=>s.trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase();
 function notify(message,undo=false){$('#toast span').textContent=message;$('#toast').style.display='block';$('#undo').hidden=!undo;clearTimeout(notify.timer);notify.timer=setTimeout(()=>$('#toast').style.display='none',undo?12000:4500);}
-function persist(next){if(storageBlocked){notify('Saved data could not be read. Import a known backup to recover it.');return false;}try{localStorage.setItem(KEY,JSON.stringify(next));entries=next;$('#saveState').textContent='✓ Saved on this device';render();return true;}catch{notify('Storage could not be saved. Export a backup before closing.');$('#saveState').textContent='Save failed';return false;}}
-try{const raw=localStorage.getItem(KEY);entries=raw?validate(JSON.parse(raw)):[];}catch{storageBlocked=true;$('#saveState').textContent='Saved data needs recovery';setTimeout(()=>notify('Saved data could not be read. It has not been overwritten.'),100);}
+function persist(next){if(storageBlocked){notify('Saved data could not be read. Import a known backup to recover it.');return false;}try{profiles.save(next);entries=profiles.current.applications;$('#saveState').textContent='✓ Saved on this device';render();return true;}catch{notify('Storage could not be saved. Export a backup before closing.');$('#saveState').textContent='Save failed';return false;}}
+try{profiles=ProfileStore.create(localStorage,validate,()=>crypto.randomUUID());entries=profiles.current.applications;}catch{storageBlocked=true;$('#saveState').textContent='Saved data needs recovery';setTimeout(()=>notify('Saved profiles could not be read. Original data has not been overwritten.'),100);}
 function ask(title,message){return new Promise(resolve=>{const d=$('#confirmDialog');$('#confirmTitle').textContent=title;$('#confirmText').textContent=message;d.returnValue='cancel';d.addEventListener('close',()=>resolve(d.returnValue==='confirm'),{once:true});d.showModal();});}
 function setScope(next){scope=next;$('#statusFilter').value='';$('#timingFilter').value='';render();}
 function render(){
+ renderProfiles();
  const today=todayISO();$('#today').textContent=new Intl.DateTimeFormat('en-GB',{weekday:'short',day:'numeric',month:'long',year:'numeric'}).format(new Date());
  const active=entries.filter(e=>!closed(e));const due=entries.filter(isFollow);const overdue=active.filter(e=>timing(e).kind==='overdue');
  $('#nav-count').textContent=entries.length;$('#follow-count').textContent=due.length;
@@ -47,12 +48,27 @@ $('#clear').onclick=clearFilters;for(const k of ['applied','windowDays','windowE
 for(const name of ['all','follow','archive'])$('#nav-'+name).onclick=()=>setScope(name);
 $('#listView').onclick=()=>{view='list';render();};$('#boardView').onclick=()=>{view='board';render();};
 form.onsubmit=e=>{e.preventDefault();try{const item=validate([Object.fromEntries(new FormData(form))])[0];const next=fields.id.value?entries.map(x=>x.id===item.id?item:x):[...entries,item];if(persist(next)){$('#editor').close();notify('Application saved.');}}catch(err){$('#formError').textContent=err.message;}};
-$('#remove').onclick=async()=>{const id=fields.id.value;if(await ask('Delete this application?','You can undo immediately after deleting, or restore an exported backup.')){const previous=structuredClone(entries);if(persist(entries.filter(e=>e.id!==id))){undoState={before:previous,after:JSON.stringify(entries)};$('#editor').close();notify('Application deleted.',true);}}};
+$('#remove').onclick=async()=>{const id=fields.id.value,origin=profiles?.current.id;if(await ask('Delete this application?','You can undo immediately after deleting, or restore an exported backup.')){if(profiles?.current.id!==origin){notify('Profile changed. Deletion cancelled.');return;}const previous=structuredClone(entries);if(persist(entries.filter(e=>e.id!==id))){undoState={before:previous,after:JSON.stringify(entries)};$('#editor').close();notify('Application deleted.',true);}}};
 $('#undo').onclick=()=>{if(undoState){if(JSON.stringify(entries)!==undoState.after){notify('The list has changed. Undo was cancelled to preserve your edits.');undoState=null;return;}if(persist(undoState.before)){undoState=null;notify('Previous list restored.');}}};
-$('#export').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),applications:entries},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='applications-'+todayISO()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);notify('Backup prepared. Keep it somewhere private.');};
-$('#import').onclick=()=>$('#file').click();$('#file').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>15000000)throw Error('Backup is too large.');const data=JSON.parse(await file.text());const next=validate(Array.isArray(data)?data:data.applications);if(await ask('Import this backup?',`Replace the current list with ${next.length} applications? Export your current list first if you need to keep it.`)){const previous=structuredClone(entries);const blocked=storageBlocked;storageBlocked=false;if(persist(next)){undoState={before:previous,after:JSON.stringify(entries)};notify('Backup imported.',!blocked);}else storageBlocked=blocked;}}catch(err){notify('Import failed: '+err.message);}finally{e.target.value='';}};
+$('#export').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,profileName:profiles?.current.name,exportedAt:new Date().toISOString(),applications:entries},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='applications-'+(profiles?.current.name||'backup').replace(/[^a-z0-9_-]/gi,'-')+'-'+todayISO()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);notify('Backup prepared. Keep it somewhere private.');};
+$('#import').onclick=()=>$('#file').click();$('#file').onchange=async e=>{const file=e.target.files[0];if(!file)return;const origin=profiles?.current.id;try{if(file.size>15000000)throw Error('Backup is too large.');const data=JSON.parse(await file.text());const next=validate(Array.isArray(data)?data:data.applications);if(await ask('Import this backup?',`Replace the current list with ${next.length} applications? Export your current list first if you need to keep it.`)){if(profiles?.current.id!==origin)throw Error('Profile changed during import. Try again.');const previous=structuredClone(entries);const blocked=storageBlocked;storageBlocked=false;if(!profiles){try{profiles=ProfileStore.create(localStorage,validate,()=>crypto.randomUUID());}catch{throw Error('Profiles need recovery. Export or preserve the existing local data before replacing it.');}}if(persist(next)){undoState={before:previous,after:JSON.stringify(entries)};notify('Backup imported.',!blocked);}else storageBlocked=blocked;}}catch(err){notify('Import failed: '+err.message);}finally{e.target.value='';}};
 $('#demo').onclick=()=>{if(entries.length)return;if(persist(makeDemo()))notify('Fictional demo loaded.');};
 $('#print').onclick=async()=>{if(window.desktop){try{if(await window.desktop.savePDF())notify('PDF saved.');}catch{notify('The PDF could not be saved. Please try again.');}}else window.print();};
-window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue)try{entries=validate(JSON.parse(e.newValue));render();notify('Updated from another window.');}catch{notify('Another window saved data that could not be read.');}});
+window.addEventListener('storage',e=>{if(e.key===KEY){try{profiles.reload();loadProfile();notify('Profiles updated from another window.');}catch{storageBlocked=true;notify('Profiles could not be read. Export a backup before closing.');}}});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();$('#search').focus();}});
 setInterval(render,60000);document.addEventListener('visibilitychange',()=>{if(!document.hidden)render();});render();
+
+
+function renderProfiles(){
+ const select=$('#profileSelect');if(!select)return;
+ select.replaceChildren();for(const p of profiles?.data.profiles||[]){const o=document.createElement('option');o.value=p.id;o.textContent=p.name+' ('+p.applications.length+')';select.append(o);}select.value=profiles?.current.id||'';
+ $('#profileManage').disabled=!profiles;$('#profileContext').textContent=profiles?'Profile: '+profiles.current.name:'';
+}
+function loadProfile(){if($('#editor').open)$('#editor').close();if($('#profileDialog').open)$('#profileDialog').close();entries=profiles.current.applications;storageBlocked=false;undoState=null;$('#toast').style.display='none';scope='all';clearFilters();document.dispatchEvent(new Event('profilechange'));}
+$('#profileSelect').onchange=e=>{try{profiles.switch(e.target.value);loadProfile();}catch(err){notify(err.message);renderProfiles();}};
+$('#profileManage').onclick=()=>{$('#profileName').value=profiles.current.name;$('#profileError').textContent='';$('#profileDelete').disabled=profiles.data.profiles.length===1;$('#profileDialog').showModal();};
+for(const [id,action] of [['profileCreate',()=>profiles.add($('#profileName').value)],['profileCopy',()=>profiles.add($('#profileName').value,true)],['profileRename',()=>profiles.rename($('#profileName').value)]]){
+ $('#'+id).onclick=()=>{try{action();$('#profileDialog').close();loadProfile();notify('Profile saved.');}catch(err){$('#profileError').textContent=err.message;}};
+}
+$('#profileDelete').onclick=async()=>{const id=profiles.current.id;if(await ask('Delete profile?',`Delete “${profiles.current.name}” and its applications? Export a backup first if you want to keep it.`)){try{if(profiles.current.id!==id)throw Error('Profile changed. Please try again.');profiles.remove();$('#profileDialog').close();loadProfile();notify('Profile deleted.');}catch(err){$('#profileError').textContent=err.message;}}};
+$('#profileClose').onclick=()=>$('#profileDialog').close();
