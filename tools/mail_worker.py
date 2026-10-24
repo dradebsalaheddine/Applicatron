@@ -46,9 +46,14 @@ def main():
     if route!='Skipped' and unresolved and req.get('large') in ('Qwen3','SmolLM3'):
      emit('progress',stage=req['large']+' extraction',count=count,qwen=qwen_calls,mini=mini_calls)
      # Preserve subject and bounded latest-message passage; never feed the whole archive.
-     semantic=engine(req['large']).screen(text[:7000]);qwen_calls+=1
+     context=('Sender: '+sender+'\nSubject: '+subject+'\n'+body)[:7000]
+     semantic=engine(req['large']).screen(context);qwen_calls+=1
+     candidate['rule_original']={k:candidate[k] for k in ('company','role','conflict')}
+     candidate['sources']={}
      for field in ('company','role'):
-      if not candidate[field] and not candidate['conflict'] and semantic.get(field):candidate[field]=semantic[field]
+      if semantic.get(field):
+       candidate[field]=semantic[field];candidate['sources'][field]=req['large']
+     if semantic.get('company') and semantic.get('role'):candidate['conflict']=False
      if semantic.get('evidence'):candidate['evidence'].append(semantic['evidence'])
      if semantic['label']!='uncertain':label=semantic['label']
     if mid:threads.add(mid)
