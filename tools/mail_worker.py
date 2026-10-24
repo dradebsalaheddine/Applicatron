@@ -12,7 +12,7 @@ def main():
   from model_download import download_model
   name=req['model'];download_model(MODELS[name],root/FOLDERS[name],name,emit);return
  from import_mail import text_of,RULES
- from mail_analysis import extract
+ from mail_analysis import extract,recruitment_hint,obvious_bulk
  from import_report import write_report
  engines={};rows=[];seen=set();threads=set();start=time.perf_counter();qwen_calls=0;mini_calls=0
  def engine(name):
@@ -32,14 +32,15 @@ def main():
    sender_hint=bool(re.search('careers|recruitment|recrutement|greenhouse|workday|lever.co',sender,re.I))
    linked=any(x in threads for x in refs.split())
    candidate=extract(subject,body,sender);semantic=None;route='Skipped';label='uncertain'
-   if hits or sender_hint or linked:
+   hint=recruitment_hint(subject,body)
+   if hits or sender_hint or linked or hint or (req.get('mini') and not obvious_bulk(subject)):
     route='Review';label=next((k for k in ['rejection','interview','assessment','confirmation'] if k in hits),'uncertain')
     clear=label!='uncertain'
     # MiniLM receives uncertain rule candidates only. Unknown unrelated messages never reach a large model.
     if not clear and req.get('mini'):
      emit('progress',stage='MiniLM screening',count=count,qwen=qwen_calls,mini=mini_calls)
      semantic=engine('MiniLM').screen(text);mini_calls+=1
-     if semantic['label']=='unrelated' and not semantic['uncertain'] and not linked:route='Skipped'
+     if semantic['label']=='unrelated' and not semantic['uncertain'] and not linked and not hint:route='Skipped'
      else:label=semantic['label'] if not semantic['uncertain'] else 'uncertain'
     unresolved=not candidate['company'] or not candidate['role'] or candidate['conflict'] or label=='uncertain'
     if route!='Skipped' and unresolved and req.get('large') in ('Qwen3','SmolLM3'):
@@ -55,7 +56,7 @@ def main():
    rows.append(row)
    if route!='Skipped':emit('row',row=row)
    if count%20==0 or route!='Skipped':emit('progress',stage='Rules screening',count=count,qwen=qwen_calls,mini=mini_calls,seconds=round(time.perf_counter()-start,1))
-  write_report(rows,req['report'],'Layered: rules → MiniLM → '+str(req.get('large') or 'review'),time.perf_counter()-start)
+  write_report(rows,req['report'],'Layered: rules → '+('MiniLM → ' if req.get('mini') else '')+str(req.get('large') or 'review'),time.perf_counter()-start)
   emit('done',count=len(rows),report=req['report'],qwen=qwen_calls,mini=mini_calls)
  finally:box.close()
 if __name__=='__main__':
