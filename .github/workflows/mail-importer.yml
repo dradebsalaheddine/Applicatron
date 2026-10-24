@@ -1,0 +1,38 @@
+name: Build mail importer
+on:
+  push:
+    paths:
+      - 'tools/**'
+      - '.github/workflows/mail-importer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CUDA runtime and importer dependencies
+        run: |
+          python -m pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+          python -m pip install --no-cache-dir -r tools/requirements-mail.txt
+      - name: Download all three local models
+        run: python tools/prepare_model.py all
+      - name: Package executable
+        run: python -m PyInstaller --noconfirm --onedir --windowed --name Applicatron-Mail-Import --collect-all sentence_transformers --collect-all transformers --collect-all tokenizers --hidden-import sklearn.utils._cython_blas tools/import_mail.py
+      - name: Place bundled models beside executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/Applicatron-Mail-Import/_internal/models
+          Copy-Item -Recurse tools/models/* dist/Applicatron-Mail-Import/_internal/models/
+          Copy-Item docs/email-import.md dist/Applicatron-Mail-Import/README.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Applicatron-Mail-Import-Windows-x64
+          path: dist/Applicatron-Mail-Import/
+          compression-level: 1
+          retention-days: 14
