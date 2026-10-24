@@ -1,4 +1,7 @@
 """Local Gmail Takeout review utility. Run with Python 3: python tools/import_mail.py"""
+import sys
+from pathlib import Path
+from mail_analysis import extract, MiniLMScreener
 import mailbox, email.policy, email.parser, re, json, hashlib, tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from html import unescape
@@ -28,7 +31,7 @@ def text_of(msg):
  text=re.split(r'(?im)^\s*(?:On .+wrote:|Le .+écrit\s*:|-----Original Message-----)',text)[0]
  return '\n'.join(l for l in text.splitlines() if not l.lstrip().startswith('>'))
 
-def scan(path):
+def scan(path, screener=None):
  box=mailbox.mbox(path, factory=lambda f:email.parser.BytesParser(policy=email.policy.default).parse(f))
  rows=[]; seen=set(); relevant_ids=set()
  try:
@@ -43,7 +46,12 @@ def scan(path):
    sender_hint=bool(re.search(r'careers|recruitment|recrutement|greenhouse|workday|lever\.co',sender,re.I))
    route='Relevant' if matches and not (bulk and matches==['application']) else 'Review' if sender_hint or matches else 'Skipped'
    if route=='Relevant' and mid: relevant_ids.add(mid)
-   rows.append(dict(subject=subject,sender=sender,body=body[:30000],id=key,refs=str(msg.get('References',''))+' '+str(msg.get('In-Reply-To','')),route=route,evidence=', '.join(matches) or ('Recruitment sender' if sender_hint else 'No rule matched')))
+   candidate=extract(subject,body,sender)
+   semantic=None
+   if screener and (route=='Review' or (route=='Skipped' and not bulk)):
+    semantic=screener.screen(hay)
+    if semantic['label']!='unrelated':route='Review'
+   rows.append(dict(candidate=candidate,semantic=semantic,subject=subject,sender=sender,body=body[:30000],id=key,refs=str(msg.get('References',''))+' '+str(msg.get('In-Reply-To','')),route=route,evidence=', '.join(matches) or ('Recruitment sender' if sender_hint else 'No rule matched')))
   for r in rows:
    if r['route']=='Skipped' and any(x in relevant_ids for x in r['refs'].split()):r.update(route='Review',evidence='Reply in relevant thread')
  finally:box.close()
@@ -51,8 +59,8 @@ def scan(path):
 
 def main():
  root=tk.Tk();root.title('Applicatron — local email review');root.geometry('1100x760')
- rows=[];approved=[];pool=ThreadPoolExecutor(max_workers=1)
- status=tk.StringVar(value='Choose the .mbox file inside your extracted Gmail Takeout archive.')
+ rows=[];approved=[];model_state={};pool=ThreadPoolExecutor(max_workers=1)
+ status=tk.StringVar(value='Open extracted Takeout .mbox. MiniLM runs offline when bundled; otherwise rules only. Suggestions always require review.')
  ttk.Label(root,textvariable=status).pack(fill='x',padx=12,pady=8)
  bar=ttk.Frame(root);bar.pack(fill='x')
  tree=ttk.Treeview(root,columns=('route','subject'),show='headings',height=12);tree.heading('route',text='Screening');tree.heading('subject',text='Subject');tree.column('subject',width=800);tree.pack(fill='both',expand=True)
@@ -68,13 +76,18 @@ def main():
   ids=tree.selection()
   if not ids:return
   r=rows[int(ids[0])];preview.delete('1.0','end');preview.insert('end',r['sender']+'\nEvidence: '+r['evidence']+'\n\n'+r['body'])
-  for k,v in fields.items():v.set('Applied' if k=='status' else '')
+  for k,v in fields.items():v.set(r['candidate'].get(k,'') if k!='status' else 'Applied')
+  preview.insert('end','\n\nExtraction evidence: '+str(r['candidate'])+'\nMiniLM suggestion (not a probability): '+str(r['semantic']))
  tree.bind('<<TreeviewSelect>>',selected)
  def choose():
   path=filedialog.askopenfilename(filetypes=[('Mailbox','*.mbox'),('All files','*')])
   if not path:return
   status.set('Scanning locally… Large archives may take several minutes.');button.config(state='disabled')
-  future=pool.submit(scan,path)
+  def work():
+   model_dir=Path(getattr(sys,'_MEIPASS',Path(__file__).parent))/'models'/'multilingual-minilm'
+   if model_dir.exists() and 'model' not in model_state:model_state['model']=MiniLMScreener(model_dir)
+   return scan(path,model_state.get('model'))
+  future=pool.submit(work)
   def poll():
    if not future.done():root.after(150,poll);return
    button.config(state='normal')
