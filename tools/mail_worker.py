@@ -3,8 +3,10 @@ import sys,json,time,re,mailbox,email.policy,email.parser,hashlib
 from pathlib import Path
 from model_backends import LocalModel,MODELS,FOLDERS
 
-def emit(kind,**data):print(json.dumps(dict(type=kind,**data),ensure_ascii=False),flush=True)
+def emit(kind,**data):print(json.dumps(dict(type=kind,**data),ensure_ascii=True),flush=True)
 def main():
+ for stream in (sys.stdin,sys.stdout,sys.stderr):
+  if hasattr(stream,"reconfigure"):stream.reconfigure(encoding="utf-8",errors="backslashreplace")
  req=json.loads(sys.stdin.readline());root=Path(req['models']);root.mkdir(parents=True,exist_ok=True)
  if req['action']=='download':
   from model_download import download_model
