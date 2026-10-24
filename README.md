@@ -53,3 +53,27 @@ The browser-only UI can be served from `web/` with a local static server. It use
 `npm test` covers date boundaries, leap dates, status/window semantics, import validation, duplicate IDs, external URL checks and the desktop asset allowlist. Manual browser checks cover the empty screen, demo, editing, persistence, deletion/undo, board and filters. No automated Windows end-to-end test has been performed. There are no background notifications, automatic job scraping or automatic updates.
 
 MIT licensed. Contributions welcome. Please use fictional data in issues and screenshots.
+
+
+## Profiles and download feedback
+
+Use **Application profile → Manage profiles** to create an empty workspace, duplicate
+an existing one for a comparison, rename it, or delete it. Each profile keeps its own
+applications and email model settings. The existing tracker migrates to **Default**;
+the old storage key remains untouched as a migration fallback. Export backup saves
+the active profile, with its name in the filename. Downloaded models are shared.
+Email review cards remain separate per profile for the current app session; save
+approved records or keep the HTML report before quitting.
+
+Model installation now shows an overall byte meter, current file, completed files,
+transfer speed, approximate remaining time, elapsed time, and waiting feedback.
+Cancel task stops the worker and retains cached files; **Download / retry** reuses
+them. Installations are marked ready only after every selected file completes.
+The portable distribution uses CPU PyTorch; choosing CUDA requires a separate
+compatible runtime. These controls do not install a GPU runtime.
+
+Validation for this update: profile migration/isolation/failure tests, download
+progress and failure tests using Hub 0.x's actual progress adapter with simulated
+transfers, and Chromium UI interaction checks with a mocked desktop bridge.
+Packaged Windows inference and public model-server transfers still require an
+end-to-end check on Windows.

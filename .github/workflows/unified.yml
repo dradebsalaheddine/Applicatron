@@ -1,7 +1,7 @@
 name: Unified desktop build
 on:
   push:
-    paths: ['desktop/**', 'web/**', 'tools/**', '.github/workflows/unified.yml']
+    paths: ['desktop/**', 'web/**', 'tools/**', 'tests/**', '.github/workflows/unified.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -21,6 +21,10 @@ jobs:
         run: |
           python -m pip install --no-cache-dir torch==2.8.0 --index-url https://download.pytorch.org/whl/cpu
           python -m pip install --no-cache-dir -r tools/requirements-mail.txt
+      - name: Validate tracker and download adapters
+        run: |
+          npm test
+          python -m unittest discover -s tests -p "test_*.py"
       - name: Build mail worker without model weights
         run: python -m PyInstaller --noconfirm --onedir --console --name Applicatron-Mail-Worker --collect-all sentence_transformers --collect-all transformers --collect-all tokenizers --distpath build/worker tools/mail_worker.py
       - shell: pwsh
@@ -33,3 +37,4 @@ jobs:
           path: build/Applicatron3000-win32-x64/
           compression-level: 6
           retention-days: 30
+

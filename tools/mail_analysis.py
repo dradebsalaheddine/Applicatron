@@ -9,7 +9,7 @@ PATTERNS = [
 ]
 INTERMEDIARIES={'linkedin','workday','greenhouse','indeed','lever','smartrecruiters','talentsoft'}
 JOB_WORDS=r'analyst|engineer|intern|consultant|manager|developer|officer|specialist|assistant|ingénieur|stagiaire|stage|analyste|développeur|responsable|technicien|auditeur'
-def extract(subject, body, sender=''):
+def _legacy_extract(subject, body, sender=''):
  candidates=[]
  for source,text in [('subject',subject),('body',body)]:
   for pattern in PATTERNS:
@@ -55,3 +55,33 @@ class MiniLMScreener:
   label,score=ranked[0];margin=score-ranked[1][1]
   # Heuristic thresholds, not calibrated confidence probabilities. Never auto-apply.
   return {'label':label,'similarity':round(score,3),'margin':round(margin,3),'uncertain':score<.55 or margin<.08,'truncated':len(chunks)>100}
+
+
+
+def recruitment_hint(subject, body=''):
+ return bool(re.search(r'candidature|demande de stage|stage pfe|application|recruitment|recrutement|interview|entretien|pre.sales|received your project|technical (?:test|assessment)', subject+'\n'+body, re.I))
+
+def obvious_bulk(subject):
+ return bool(re.search(r'jobs matching your criteria|job alert|nouvelles offres|nouvelles opportunit|others are hiring|accepted your invitation|wants to connect|recently posted|security alert|newsletter|password reset|reset your password',subject,re.I))
+
+def extract(subject, body, sender=''):
+ from html import unescape
+ def clean(t):return re.sub(r'[ \t]+',' ',unescape(t).replace('\u200b','').replace('\u202f',' ').replace('\xa0',' ')).strip()
+ subject,body=clean(subject),clean(body)
+ result=_legacy_extract(subject,body,sender)
+ def employer(v):return 1<len(v)<=150 and not re.search(r'candidature|application|poste|stage|received|thank|https?://|@',v,re.I) and v.lower() not in INTERMEDIARIES
+ if not employer(result['company']):result['company']=''
+ companies=[]
+ for pattern in [r'^(.{2,100}?)\s+[—–-]\s+(?:Votre candidature|Your application)',r'^Candidature (.{2,100}?) reçue',r'\[([^]\n]+)\]$']:
+  m=re.search(pattern,subject,re.I)
+  if m and employer(m[1].strip()):companies.append(m[1].strip())
+ if len(set(companies))==1:
+  result['company']=companies[0];result['evidence'].append(subject)
+ # Subject fields are bounded by the subject itself; commas belong to role names.
+ m=re.search(r'(?:poste (?:de\s+)?|position of\s+|role of\s+)(.+)$',subject,re.I)
+ if m:
+  role=m[1].strip(' \"“”');role=re.sub(r'\s+chez\s+.*$','',role,flags=re.I)
+  if re.search(JOB_WORDS,role,re.I) and len(role)<=250:
+   result['role']=role;result['evidence'].append(subject)
+ result['role']=re.sub(r'\s+(?:position|role)$','',result['role'],flags=re.I)
+ return result

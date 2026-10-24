@@ -10,11 +10,11 @@ from html import unescape
 from concurrent.futures import ThreadPoolExecutor
 
 RULES = [
- ('confirmation', r'thank you for applying|application (?:has been )?received|candidature (?:a bien été |bien )?reçue|accusons réception de votre candidature'),
- ('rejection', r'not (?:been )?selected|will not be (?:moving|proceeding)|unsuccessful|candidature.{0,60}pas retenue|ne donnerons pas suite'),
+ ('confirmation', r'thank you for applying|application (?:has been )?received|candidature (?:a bien été |bien )?reçue|accusé.{0,12}réception|accusons réception de votre candidature'),
+ ('rejection', r'not (?:been )?selected|will not be (?:moving|proceeding)|unsuccessful|candidature.{0,60}(?:pas|non) retenue|ne donnerons pas suite'),
  ('interview', r'invite you.{0,60}interview|invitation.{0,40}entretien|schedule.{0,40}interview'),
  ('assessment', r'(?:complete|take|invitation).{0,50}(?:assessment|technical test)|test technique|évaluation technique'),
- ('application', r'your application|votre candidature|application (?:id|reference)|référence.{0,20}candidature'),
+ ('application', r'demande de stage|follow.up.{0,80}application|received your project|candidature|recruitment process|your application|votre candidature|application (?:id|reference)|référence.{0,20}candidature'),
 ]
 
 def text_of(msg):
@@ -146,3 +146,4 @@ def main():
  ttk.Button(bar,text='Export approved JSON',command=export).pack(side='left',padx=8)
  root.mainloop();pool.shutdown(wait=False,cancel_futures=True)
 if __name__=='__main__':main()
+
