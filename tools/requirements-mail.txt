@@ -1,2 +1,5 @@
 sentence-transformers>=3,<6
 pyinstaller>=6,<7
+transformers>=4.53,<5
+torch>=2.7
+huggingface-hub>=0.30,<1

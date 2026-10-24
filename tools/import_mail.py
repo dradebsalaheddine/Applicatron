@@ -1,5 +1,7 @@
 """Local Gmail Takeout review utility. Run with Python 3: python tools/import_mail.py"""
-import sys
+import sys,time,gc
+from model_backends import LocalModel
+from import_report import write_report
 from pathlib import Path
 from mail_analysis import extract, MiniLMScreener
 import mailbox, email.policy, email.parser, re, json, hashlib, tkinter as tk
@@ -48,9 +50,12 @@ def scan(path, screener=None):
    if route=='Relevant' and mid: relevant_ids.add(mid)
    candidate=extract(subject,body,sender)
    semantic=None
-   if screener and (route=='Review' or (route=='Skipped' and not bulk)):
+   if screener:
     semantic=screener.screen(hay)
-    if semantic['label']!='unrelated':route='Review'
+    if semantic['label']!='unrelated' and route=='Skipped':route='Review'
+    for field in ('company','role'):
+     if not candidate[field] and not candidate['conflict'] and semantic.get(field):candidate[field]=semantic[field]
+    if semantic.get('evidence'):candidate['evidence'].append(semantic['evidence'])
    rows.append(dict(candidate=candidate,semantic=semantic,subject=subject,sender=sender,body=body[:30000],id=key,refs=str(msg.get('References',''))+' '+str(msg.get('In-Reply-To','')),route=route,evidence=', '.join(matches) or ('Recruitment sender' if sender_hint else 'No rule matched')))
   for r in rows:
    if r['route']=='Skipped' and any(x in relevant_ids for x in r['refs'].split()):r.update(route='Review',evidence='Reply in relevant thread')
@@ -63,6 +68,12 @@ def main():
  status=tk.StringVar(value='Open extracted Takeout .mbox. MiniLM runs offline when bundled; otherwise rules only. Suggestions always require review.')
  ttk.Label(root,textvariable=status).pack(fill='x',padx=12,pady=8)
  bar=ttk.Frame(root);bar.pack(fill='x')
+ options=ttk.Frame(root);options.pack(fill='x')
+ model_choice=tk.StringVar(value='Rules only');device_choice=tk.StringVar(value='Auto')
+ ttk.Label(options,text='Test model:').pack(side='left')
+ ttk.Combobox(options,textvariable=model_choice,values=['Rules only','MiniLM','Qwen3','SmolLM3'],state='readonly').pack(side='left')
+ ttk.Label(options,text='Device:').pack(side='left')
+ ttk.Combobox(options,textvariable=device_choice,values=['Auto','CPU','CUDA'],state='readonly',width=8).pack(side='left')
  tree=ttk.Treeview(root,columns=('route','subject'),show='headings',height=12);tree.heading('route',text='Screening');tree.heading('subject',text='Subject');tree.column('subject',width=800);tree.pack(fill='both',expand=True)
  preview=tk.Text(root,height=10,wrap='word');preview.pack(fill='both',expand=True)
  fields={}
@@ -77,16 +88,28 @@ def main():
   if not ids:return
   r=rows[int(ids[0])];preview.delete('1.0','end');preview.insert('end',r['sender']+'\nEvidence: '+r['evidence']+'\n\n'+r['body'])
   for k,v in fields.items():v.set(r['candidate'].get(k,'') if k!='status' else 'Applied')
-  preview.insert('end','\n\nExtraction evidence: '+str(r['candidate'])+'\nMiniLM suggestion (not a probability): '+str(r['semantic']))
+  preview.insert('end','\n\nExtraction evidence: '+str(r['candidate'])+'\nModel suggestion (review required): '+str(r['semantic']))
  tree.bind('<<TreeviewSelect>>',selected)
  def choose():
   path=filedialog.askopenfilename(filetypes=[('Mailbox','*.mbox'),('All files','*')])
   if not path:return
+  report_path=filedialog.asksaveasfilename(title='Save private import report',defaultextension='.html',initialfile='Applicatron-import-'+time.strftime('%Y%m%d-%H%M%S')+'.html')
+  if not report_path:return
+  chosen=model_choice.get();device=device_choice.get();started=time.perf_counter()
   status.set('Scanning locally… Large archives may take several minutes.');button.config(state='disabled')
   def work():
-   model_dir=Path(getattr(sys,'_MEIPASS',Path(__file__).parent))/'models'/'multilingual-minilm'
-   if model_dir.exists() and 'model' not in model_state:model_state['model']=MiniLMScreener(model_dir)
-   return scan(path,model_state.get('model'))
+   model_dir=Path(getattr(sys,'_MEIPASS',Path(__file__).parent))/'models'
+   key=(chosen,device)
+   if model_state.get('key')!=key:
+    model_state.clear();gc.collect()
+    if chosen!='Rules only':
+     import torch
+     if torch.cuda.is_available():torch.cuda.empty_cache()
+     model_state['model']=LocalModel(chosen,model_dir,device)
+    model_state['key']=key
+   result=scan(path,model_state.get('model'))
+   write_report(result,report_path,chosen,time.perf_counter()-started)
+   return result
   future=pool.submit(work)
   def poll():
    if not future.done():root.after(150,poll);return
@@ -95,7 +118,7 @@ def main():
    except Exception as e:messagebox.showerror('Import failed',str(e));return
    rows[:]=result;tree.delete(*tree.get_children())
    for i,r in enumerate(rows):tree.insert('', 'end',iid=str(i),values=(r['route'],r['subject']))
-   status.set(f'{len(rows)} unique messages; {sum(r["route"]=="Relevant" for r in rows)} relevant; {sum(r["route"]=="Review" for r in rows)} need review. Select an email and confirm application details.')
+   status.set(f'HTML report saved. {time.perf_counter()-started:.1f}s. {len(rows)} unique messages; {sum(r["route"]=="Relevant" for r in rows)} relevant; {sum(r["route"]=="Review" for r in rows)} need review. Select an email and confirm application details.')
   root.after(150,poll)
  def approve():
   if not tree.selection():return

@@ -41,9 +41,9 @@ EXAMPLES={
  'assessment':['Please complete this technical assessment for your application.','Veuillez réaliser ce test technique de recrutement.'],
  'unrelated':['Here are new jobs you might like.','Découvrez nos offres et notre newsletter.','Your order has shipped.','Your account security code.']}
 class MiniLMScreener:
- def __init__(self, model_path):
+ def __init__(self, model_path, device="cpu"):
   from sentence_transformers import SentenceTransformer
-  self.model=SentenceTransformer(str(model_path),local_files_only=True,device='cpu')
+  self.model=SentenceTransformer(str(model_path),local_files_only=True,device=device)
   self.labels=[label for label,examples in EXAMPLES.items() for _ in examples]
   self.prototypes=self.model.encode([s for examples in EXAMPLES.values() for s in examples],normalize_embeddings=True)
  def screen(self,text):
